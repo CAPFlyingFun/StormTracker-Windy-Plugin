@@ -142,6 +142,9 @@
 
     function getVisibleMapCenter(): { lat: number; lng: number } {
         const center = map.getCenter();
+        if (minimized) return { lat: center.lat, lng: center.lng };
+        const isMobileFullscreen = config.mobileUI === 'fullscreen' && window.innerWidth < 768;
+        if (!isMobileFullscreen) return { lat: center.lat, lng: center.lng };
         try {
             const size = map.getSize();
             if (size && size.y > 0) {
@@ -259,7 +262,7 @@
             }
 
             if (showArrows) {
-                const track = s.track;
+                const track = s.track && s.track.speed >= 2 ? s.track : null;
                 const dir = track ? track.dir : (movementSource ? movementSource.direction : null);
                 const spd = track ? track.speed : (movementSource ? movementSource.speed : 0);
                 if (dir !== null && spd >= 2) {
@@ -289,7 +292,7 @@
             }
 
             if (showTracks) {
-                const track = s.track;
+                const track = s.track && s.track.speed >= 2 ? s.track : null;
                 const dir = track ? track.dir : (movementSource ? movementSource.direction : null);
                 const spd = track ? track.speed : (movementSource ? movementSource.speed : 0);
                 if (dir !== null && spd >= 2) {
