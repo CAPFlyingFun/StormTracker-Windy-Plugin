@@ -243,32 +243,6 @@ export function clusterPoints(pts: RawPoint[], gridSize: number, centerLat: numb
     return storms;
 }
 
-const NEXRAD_SITES = [
-    { id: 'BMX', lat: 33.172, lon: -86.770 }, { id: 'EOX', lat: 31.460, lon: -85.459 },
-    { id: 'MOB', lat: 30.679, lon: -88.240 }, { id: 'TLH', lat: 30.397, lon: -84.329 },
-    { id: 'JAX', lat: 30.485, lon: -81.702 }, { id: 'SHV', lat: 32.451, lon: -93.841 },
-    { id: 'HGX', lat: 29.472, lon: -95.079 }, { id: 'FWS', lat: 32.573, lon: -97.303 },
-    { id: 'TLX', lat: 35.333, lon: -97.278 }, { id: 'INX', lat: 36.175, lon: -95.564 },
-    { id: 'SGF', lat: 37.235, lon: -93.400 }, { id: 'LSX', lat: 38.699, lon: -90.683 },
-    { id: 'ICT', lat: 37.655, lon: -97.443 }, { id: 'OAX', lat: 41.320, lon: -96.367 },
-    { id: 'MPX', lat: 44.849, lon: -93.565 }, { id: 'LOT', lat: 41.604, lon: -88.085 },
-    { id: 'DTX', lat: 42.700, lon: -83.472 }, { id: 'CLE', lat: 41.413, lon: -81.860 },
-    { id: 'IND', lat: 39.708, lon: -86.280 }, { id: 'PUX', lat: 38.460, lon: -104.181 },
-    { id: 'FTG', lat: 39.787, lon: -104.546 }, { id: 'PHX', lat: 33.422, lon: -112.166 },
-    { id: 'ATX', lat: 48.195, lon: -122.496 }, { id: 'RTX', lat: 45.715, lon: -122.965 },
-    { id: 'DAX', lat: 38.501, lon: -121.678 }, { id: 'SOX', lat: 33.818, lon: -117.636 },
-    { id: 'LWX', lat: 38.975, lon: -77.478 }, { id: 'OKX', lat: 40.866, lon: -72.864 },
-    { id: 'BOX', lat: 41.956, lon: -71.137 }, { id: 'RAX', lat: 35.665, lon: -78.490 },
-    { id: 'FFC', lat: 33.363, lon: -84.566 }, { id: 'MLB', lat: 28.113, lon: -80.654 },
-    { id: 'AMX', lat: 25.611, lon: -80.413 }, { id: 'TBW', lat: 27.706, lon: -82.402 },
-];
-
-function findNearestRadar(lat: number, lon: number): string {
-    let best = NEXRAD_SITES[0], bestD = Infinity;
-    for (const s of NEXRAD_SITES) { const d = Math.hypot(lat - s.lat, lon - s.lon); if (d < bestD) { bestD = d; best = s; } }
-    return best.id;
-}
-
 let _scanHistory: ScanSnapshot[] = [];
 let _cellTracks: Record<string, CellTrack> = {};
 let _lastScanCenter: { lat: number; lon: number } | null = null;
