@@ -203,12 +203,26 @@
         }).addTo(map);
     }
 
+    /**
+     * Run one scan, and ALWAYS give the lock back.
+     *
+     * `scanning` is what stops two scans overlapping, so whatever happens it
+     * has to be cleared — and it was being cleared by a plain statement at the
+     * end, with two Leaflet calls sitting outside the try above it.
+     * `updateRangeCircle` removes a layer and adds a circle to the map, which
+     * throws if the map has gone: close the plugin mid-scan and `scanning`
+     * stayed true forever, so the two-minute timer kept firing into a function
+     * that returned immediately and auto-scan was silently dead until reload.
+     *
+     * Everything that can throw is inside the try now, and the release is in a
+     * finally where it cannot be skipped.
+     */
     async function doScan() {
         if (scanning) return;
         scanning = true;
-        const vc = getVisibleMapCenter();
-        updateRangeCircle();
         try {
+            const vc = getVisibleMapCenter();
+            updateRangeCircle();
             const result = await scanForStorms(vc.lat, vc.lng, scanRadius);
             storms = result.storms;
             scanSource = result.source;
@@ -216,8 +230,9 @@
             setTimeout(() => replot(), 0);
         } catch (e) {
             scanSource = 'Scan failed';
+        } finally {
+            scanning = false;
         }
-        scanning = false;
     }
 
     function startAuto() {
