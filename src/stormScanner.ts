@@ -61,7 +61,7 @@ export function degToDir(deg: number): string {
     return dirs[Math.round(deg / 22.5) % 16];
 }
 
-function rvToDbz(r: number, g: number, b: number, a: number): number {
+export function rvToDbz(r: number, g: number, b: number, a: number): number {
     if (a < 30) return 0;
     if (r >= 254 && g < 20 && b >= 254) return 65;
     if (r >= 200 && g < 60 && b >= 200) return 60;
@@ -80,7 +80,7 @@ function rvToDbz(r: number, g: number, b: number, a: number): number {
     return Math.round(15 + (mx / 255) * 45);
 }
 
-function nexradToDbz(r: number, g: number, b: number, a: number): number {
+export function nexradToDbz(r: number, g: number, b: number, a: number): number {
     if (a < 30) return 0;
     if (r >= 254 && g < 20 && b >= 254) return 70;
     if (r >= 230 && g < 50 && b >= 230) return 65;
@@ -154,7 +154,7 @@ async function decodeRvRgba(buf: ArrayBuffer) {
     return { w, h, data: rgba };
 }
 
-function isUSLocation(lat: number, lon: number): boolean {
+export function isUSLocation(lat: number, lon: number): boolean {
     return lat >= 24 && lat <= 50 && lon >= -125 && lon <= -66;
 }
 
@@ -216,7 +216,7 @@ async function scanTile(url: string, tx: number, ty: number, zoom: number, color
     return pts;
 }
 
-function clusterPoints(pts: RawPoint[], gridSize: number, centerLat: number, centerLon: number): StormCell[] {
+export function clusterPoints(pts: RawPoint[], gridSize: number, centerLat: number, centerLon: number): StormCell[] {
     if (!pts.length) return [];
     const cells = new Map<string, { lats: number[]; lngs: number[]; dbzs: number[]; maxDbz: number }>();
     for (const p of pts) {
@@ -284,7 +284,7 @@ function resetTrackingIfMoved(lat: number, lon: number) {
     _lastScanCenter = { lat, lon };
 }
 
-function buildCellTracks(prev: ScanSnapshot, curr: ScanSnapshot) {
+export function buildCellTracks(prev: ScanSnapshot, curr: ScanSnapshot) {
     const dtHrs = (curr.ts - prev.ts) / 3600000;
     if (dtHrs <= 0 || dtHrs > 1) return;
     const tracks: Record<string, CellTrack> = {};
@@ -348,7 +348,7 @@ export async function fetchWindsAloft(lat: number, lon: number): Promise<WindDat
     } catch { return null; }
 }
 
-function calcETA(storm: StormCell, wind: WindData | null, centerLat: number, centerLon: number): StormCell['eta'] {
+export function calcETA(storm: StormCell, wind: WindData | null, centerLat: number, centerLon: number): StormCell['eta'] {
     if (!wind || wind.speed < 2) return null;
     const track = getCellTrack(storm);
     const movDir = track ? track.dir : wind.direction;
