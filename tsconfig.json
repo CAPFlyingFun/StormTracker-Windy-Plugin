@@ -15,7 +15,8 @@
     "alwaysStrict": true,
     "esModuleInterop": true,
     "moduleResolution": "node",
-    "strictNullChecks": false,
+    "strictNullChecks": true,
+    "skipLibCheck": true,
     "isolatedModules": true,
     "paths": {
       "@windy/*": [

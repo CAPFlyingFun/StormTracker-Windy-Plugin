@@ -194,10 +194,22 @@ async function scanTile(url: string, tx: number, ty: number, zoom: number, color
     });
     if (!img) return [];
     const c = document.createElement('canvas'); c.width = 256; c.height = 256;
+    /*
+     * A 2D context can genuinely be refused, and this is not a theoretical
+     * worry here: a scan creates one canvas per tile — forty-nine of them —
+     * every two minutes, and browsers cap how many contexts a page may hold.
+     * Exhaust that and `getContext` hands back null, `drawImage` throws, and
+     * the tile is lost inside `Promise.allSettled` without a word.
+     *
+     * Skipping the tile is the same thing the other failure paths here do.
+     */
     const ctx = c.getContext('2d', { willReadFrequently: true });
-    ctx.drawImage(img, 0, 0);
+    if (!ctx) return [];
     let data: Uint8ClampedArray;
-    try { data = ctx.getImageData(0, 0, 256, 256).data; } catch { return []; }
+    try {
+        ctx.drawImage(img, 0, 0);
+        data = ctx.getImageData(0, 0, 256, 256).data;
+    } catch { return []; }
     const pts: RawPoint[] = [];
     for (let x = 0; x < 256; x += step) {
         for (let y = 0; y < 256; y += step) {
@@ -263,7 +275,10 @@ export function buildCellTracks(prev: ScanSnapshot, curr: ScanSnapshot) {
     if (dtHrs <= 0 || dtHrs > 1) return;
     const tracks: Record<string, CellTrack> = {};
     for (const c of curr.cells) {
-        let best = null, bestD = Infinity;
+        // Typed rather than inferred: `let best = null` infers the type NULL,
+        // so every read of `best.lat` below was unchecked by the compiler.
+        let best: ScanSnapshot['cells'][number] | null = null;
+        let bestD = Infinity;
         for (const p of prev.cells) {
             const d = haversine(c.lat, c.lng, p.lat, p.lng);
             const dbzDiff = Math.abs(c.dbz - p.dbz);
