@@ -286,7 +286,52 @@ function getCellTrack(storm: StormCell): CellTrack | null {
     return _cellTracks[key] || null;
 }
 
+/**
+ * How long a cached answer is worth reusing, and how far you can move before
+ * it stops being about where you are.
+ *
+ * Winds aloft come from a forecast model that publishes hourly; the scan runs
+ * every two minutes, so it was asking about thirty times more often than the
+ * answer could possibly change. The radar index is a list of frame paths that
+ * turns over every ten minutes.
+ *
+ * The distance is the part worth thinking about: steering winds at 850-500 hPa
+ * are a synoptic-scale field, so twenty-five miles is nothing to them, while
+ * the tracking reset already treats twenty miles as "somewhere else". Sitting
+ * inside that, a fresh request would return the same numbers.
+ */
+const WIND_CACHE_MS = 15 * 60 * 1000;
+const WIND_CACHE_MILES = 25;
+const RADAR_INDEX_CACHE_MS = 2 * 60 * 1000;
+
+let _windCache: { lat: number; lon: number; at: number; data: WindData | null } | null = null;
+let _radarIndexCache: { at: number; path: string } | null = null;
+
+/** Throw the caches away. For tests, and for anything that resets tracking. */
+export function clearScannerCaches(): void {
+    _windCache = null;
+    _radarIndexCache = null;
+}
+
 export async function fetchWindsAloft(lat: number, lon: number): Promise<WindData | null> {
+    const now = Date.now();
+    if (_windCache
+        && now - _windCache.at < WIND_CACHE_MS
+        && haversine(_windCache.lat, _windCache.lon, lat, lon) < WIND_CACHE_MILES) {
+        return _windCache.data;
+    }
+    const fresh = await requestWindsAloft(lat, lon);
+    /*
+     * A failed request is cached too, and deliberately. Open-Meteo being down
+     * or rate-limiting is not a reason to hammer it once every two minutes; the
+     * ETA simply goes quiet until the entry expires, which is what it does
+     * anyway when the answer is null.
+     */
+    _windCache = { lat, lon, at: now, data: fresh };
+    return fresh;
+}
+
+async function requestWindsAloft(lat: number, lon: number): Promise<WindData | null> {
     try {
         const params = new URLSearchParams({
             latitude: lat.toString(), longitude: lon.toString(),
@@ -322,6 +367,32 @@ export async function fetchWindsAloft(lat: number, lon: number): Promise<WindDat
     } catch { return null; }
 }
 
+export /**
+ * The newest RainViewer frame path, reused for a couple of minutes.
+ *
+ * The index lists frames that turn over about every ten minutes, so fetching
+ * it on every scan bought nothing. Returns an empty string when it cannot be
+ * had, which is what the caller already treated as "no RainViewer tiles".
+ */
+async function fetchRadarIndex(): Promise<string> {
+    const now = Date.now();
+    if (_radarIndexCache && now - _radarIndexCache.at < RADAR_INDEX_CACHE_MS) {
+        return _radarIndexCache.path;
+    }
+    try {
+        const rv = await fetch('https://api.rainviewer.com/public/weather-maps.json',
+            { signal: AbortSignal.timeout(6000) }).then(r => r.json());
+        const frames = (rv.radar?.past || []).concat(rv.radar?.nowcast || []);
+        const path = frames.length ? frames[frames.length - 1].path : '';
+        _radarIndexCache = { at: now, path };
+        return path;
+    } catch {
+        // Keep serving the last known path rather than dropping to no radar at
+        // all on one failed request — a stale frame beats a blank map.
+        return _radarIndexCache?.path ?? '';
+    }
+}
+
 export function calcETA(storm: StormCell, wind: WindData | null, centerLat: number, centerLon: number): StormCell['eta'] {
     if (!wind || wind.speed < 2) return null;
     const track = getCellTrack(storm);
@@ -349,13 +420,8 @@ export async function scanForStorms(centerLat: number, centerLon: number, scanRa
     const minDbz = 25;
     const gridSize = 0.15;
 
-    let rvPath = '';
+    const rvPath = await fetchRadarIndex();
     let source = 'RainViewer';
-    try {
-        const rv = await fetch('https://api.rainviewer.com/public/weather-maps.json').then(r => r.json());
-        const frames = (rv.radar?.past || []).concat(rv.radar?.nowcast || []);
-        if (frames.length) rvPath = frames[frames.length - 1].path;
-    } catch {}
 
     const n = Math.pow(2, zoom);
     const centerTX = Math.floor(((centerLon + 180) / 360) * n);

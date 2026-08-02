@@ -1,12 +1,14 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
     bearing,
     calcETA,
+    clearScannerCaches,
     clusterPoints,
     dbzColor,
     dbzLabel,
     degToDir,
     destPoint,
+    fetchWindsAloft,
     haversine,
     isUSLocation,
     nexradToDbz,
@@ -309,5 +311,78 @@ describe('time to impact', () => {
                 expect(eta.impact).toBeLessThanOrEqual(95);
             }
         }
+    });
+});
+
+describe('not asking the same question over and over', () => {
+    const windReply = {
+        current: {
+            wind_speed_850hPa: 10, wind_direction_850hPa: 270,
+            wind_speed_700hPa: 12, wind_direction_700hPa: 270,
+            wind_speed_500hPa: 14, wind_direction_500hPa: 270,
+        },
+    };
+
+    let calls: string[] = [];
+
+    beforeEach(() => {
+        calls = [];
+        clearScannerCaches();
+        vi.useFakeTimers();
+        vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+            calls.push(String(url));
+            return { ok: true, json: async () => windReply } as unknown as Response;
+        }));
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+        vi.unstubAllGlobals();
+    });
+
+    it('asks once and reuses the answer for a quarter of an hour', async () => {
+        await fetchWindsAloft(30, -90);
+        await fetchWindsAloft(30, -90);
+        await fetchWindsAloft(30, -90);
+        expect(calls).toHaveLength(1);
+    });
+
+    it('asks again once the answer is stale', async () => {
+        await fetchWindsAloft(30, -90);
+        vi.setSystemTime(Date.now() + 16 * 60 * 1000);
+        await fetchWindsAloft(30, -90);
+        expect(calls).toHaveLength(2);
+    });
+
+    it('reuses the answer for a small map nudge, because the wind field is huge', async () => {
+        await fetchWindsAloft(30, -90);
+        // Ten miles north: steering winds at 850-500 hPa do not know or care.
+        await fetchWindsAloft(30.145, -90);
+        expect(calls).toHaveLength(1);
+    });
+
+    it('asks again when you have actually gone somewhere else', async () => {
+        await fetchWindsAloft(30, -90);
+        await fetchWindsAloft(31, -90);   // 69 miles
+        expect(calls).toHaveLength(2);
+    });
+
+    it('remembers a FAILURE too, instead of retrying every two minutes', async () => {
+        vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+            calls.push(String(url));
+            return { ok: false } as unknown as Response;
+        }));
+        expect(await fetchWindsAloft(30, -90)).toBeNull();
+        expect(await fetchWindsAloft(30, -90)).toBeNull();
+        expect(calls).toHaveLength(1);
+    });
+
+    it('still returns the right wind after caching it', async () => {
+        const first = await fetchWindsAloft(30, -90);
+        const second = await fetchWindsAloft(30, -90);
+        expect(first).not.toBeNull();
+        // Wind FROM 270 is weather moving TOWARD 90.
+        expect(first!.direction).toBe(90);
+        expect(second).toEqual(first);
     });
 });
