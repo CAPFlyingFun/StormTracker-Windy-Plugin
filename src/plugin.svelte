@@ -31,6 +31,7 @@
                 <label class="st-check"><input type="checkbox" bind:checked={showPoints} on:change={replot} /> Storm Points</label>
                 <label class="st-check"><input type="checkbox" bind:checked={showArrows} on:change={replot} /> Movement Arrows</label>
                 <label class="st-check"><input type="checkbox" bind:checked={showTracks} on:change={replot} /> Track Cones</label>
+                <label class="st-check"><input type="checkbox" bind:checked={showLightning} on:change={replot} /> ⚡ Lightning (GOES satellite)</label>
             </div>
         </div>
 
@@ -51,7 +52,7 @@
     {/if}
 
     {#if scanSource}
-        <div class="st-source">{scanSource} · {storms.length} cell{storms.length !== 1 ? 's' : ''}{windData ? ` · Wind ${windData.speed} mph ${degToDir(windData.direction)}` : ''}</div>
+        <div class="st-source">{scanSource} · {storms.length} cell{storms.length !== 1 ? 's' : ''}{windData ? ` · Wind ${windData.speed} mph ${degToDir(windData.direction)}` : ''}{showLightning && lightning && lightning.strikes.length ? ` · ⚡ ${lightning.strikes.length} strike${lightning.strikes.length !== 1 ? 's' : ''}` : ''}</div>
     {/if}
 
     {#if !minimized}
@@ -82,7 +83,7 @@
         {/if}
 
         <div class="st-footer">
-            <a href="https://github.com/CAPFlyingFun/StormTracker" target="_blank">StormTracker</a> · Radar: RainViewer + NEXRAD
+            <a href="https://github.com/CAPFlyingFun/StormTracker" target="_blank">StormTracker</a> · Radar: RainViewer + NEXRAD{#if showLightning && lightning && lightning.strikes.length} · ⚡ Lightning: NOAA GOES GLM{lightning.sat ? ` (${lightning.sat})` : ''}{/if}
         </div>
     {/if}
 </section>
@@ -93,6 +94,8 @@
     import { map } from '@windy/map';
     import { scanForStorms, dbzColor, dbzLabel, degToDir, destPoint, haversine } from './stormScanner';
     import type { StormCell, WindData } from './stormScanner';
+    import { fetchLightning, clusterStrikes } from './lightning';
+    import type { LightningResult } from './lightning';
     import config from './pluginConfig';
 
     const { title } = config;
@@ -102,6 +105,8 @@
     let showPoints = true;
     let showArrows = true;
     let showTracks = true;
+    let showLightning = true;
+    let lightning: LightningResult | null = null;
     let scanning = false;
     let autoScan = true;
     let autoTimer: any = null;
@@ -114,6 +119,7 @@
     let pointMarkers: any[] = [];
     let arrowLines: any[] = [];
     let trackPolys: any[] = [];
+    let ltgMarkers: any[] = [];
     let rangeCircle: any = null;
 
     $: visibleStorms = getVisibleStorms(storms, displayMode);
@@ -188,6 +194,8 @@
         arrowLines = [];
         trackPolys.forEach(p => { try { map.removeLayer(p); } catch {} });
         trackPolys = [];
+        ltgMarkers.forEach(m => { try { map.removeLayer(m); } catch {} });
+        ltgMarkers = [];
     }
 
     function updateRangeCircle() {
@@ -209,10 +217,17 @@
         const vc = getVisibleMapCenter();
         updateRangeCircle();
         try {
-            const result = await scanForStorms(vc.lat, vc.lng, scanRadius);
+            // Radar scan and the (keyless, quota-free) GLM lightning fetch run
+            // in parallel; a lightning failure never fails the scan — the
+            // layer just stays empty.
+            const [result, ltg] = await Promise.all([
+                scanForStorms(vc.lat, vc.lng, scanRadius),
+                showLightning ? fetchLightning(vc.lat, vc.lng, scanRadius).catch(() => null) : Promise.resolve(null),
+            ]);
             storms = result.storms;
             scanSource = result.source;
             windData = result.wind;
+            lightning = ltg;
             setTimeout(() => replot(), 0);
         } catch (e) {
             scanSource = 'Scan failed';
@@ -233,6 +248,27 @@
 
     function replot() {
         clearLayers();
+        // ⚡ Observed strikes are their OWN layer — not tied to the storm
+        // display mode, so real lightning still shows with storm points off.
+        // Clustered ~2 mi cells with a count, age-faded, same treatment as the
+        // main app's radar map. Source: NOAA GOES GLM (see footer credit).
+        if (showLightning && lightning && lightning.strikes.length) {
+            for (const c of clusterStrikes(lightning.strikes)) {
+                const op = c.minAgeMin < 5 ? 1 : c.minAgeMin < 10 ? 0.8 : 0.5;
+                const cnt = c.count > 1
+                    ? `<span style="font-size:8px;font-weight:800;color:#fff;text-shadow:0 0 2px #000,0 0 2px #000;margin-left:-1px;vertical-align:super">${c.count > 99 ? '99+' : c.count}</span>`
+                    : '';
+                const icon = L.divIcon({
+                    className: 'st-ltg-bolt',
+                    html: `<div style="opacity:${op};font-size:15px;line-height:1;text-shadow:0 0 3px #000,0 0 4px #000;white-space:nowrap">⚡${cnt}</div>`,
+                    iconSize: [22, 18],
+                    iconAnchor: [8, 9],
+                });
+                const m = L.marker([c.lat, c.lng], { icon, interactive: false, keyboard: false });
+                m.addTo(map);
+                ltgMarkers.push(m);
+            }
+        }
         if (displayMode === 'off') return;
 
         const plotStorms = getVisibleStorms(storms, displayMode);

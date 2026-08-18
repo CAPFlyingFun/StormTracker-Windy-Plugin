@@ -510,10 +510,25 @@ export async function fetchWindsAloft(
       forecast_days: "1",
       timezone: "auto",
     });
-    const r = await fetch("https://api.open-meteo.com/v1/forecast?" + params, {
-      signal: AbortSignal.timeout(6000),
-    });
-    if (!r.ok) return null;
+    // Sibling-host fallback (ported from the main app's v4.42 fix):
+    // api.open-meteo.com sometimes returns 5xx for stretches while
+    // customer-api stays up. Try main first, fall over on 5xx/timeout/network
+    // so steering arrows and cones survive an Open-Meteo wobble.
+    const hosts = ["api.open-meteo.com", "customer-api.open-meteo.com"];
+    let r: Response | null = null;
+    for (let i = 0; i < hosts.length; i++) {
+      try {
+        const rr = await fetch(`https://${hosts[i]}/v1/forecast?` + params, {
+          signal: AbortSignal.timeout(6000),
+        });
+        if (rr.ok) { r = rr; break; }
+        // 4xx = bad request the sibling would also reject; only 5xx falls over.
+        if (rr.status < 500 || i === hosts.length - 1) break;
+      } catch {
+        if (i === hosts.length - 1) break; // network/timeout — try next host
+      }
+    }
+    if (!r) return null;
     const d = await r.json();
     const c = d.current;
     const steering = [
@@ -686,7 +701,7 @@ export async function scanForStorms(
       tx: t.tx,
       ty: t.ty,
     }));
-    const results = await Promise.allSettled(
+    const rvPoints = await scanRadarTiles(
       rvUrls.map((u) =>
         scanTile(
           u.url,
@@ -702,21 +717,8 @@ export async function scanForStorms(
         ),
       ),
     );
-      rvUrls.map((u) =>
-        scanTile(
-          u.url,
-          u.tx,
-          u.ty,
-          zoom,
-          rvToDbz,
-          minDbz,
-          centerLat,
-          centerLon,
-          scanRadius,
-          step,
-        ),
-      ),
-    );
+
+    allPts.push(...rvPoints);
   }
 
   const storms = clusterPoints(allPts, gridSize, centerLat, centerLon);
