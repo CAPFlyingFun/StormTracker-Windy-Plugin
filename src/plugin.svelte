@@ -1,3 +1,11 @@
+<!-- v1.5.2: REQUIRED for mobileUI 'small' — Windy's mobile bottom sheet
+     renders this div as the collapsed grab-handle; tapping it expands the
+     sheet to plugin__content. Without it the sheet has no collapsed state at
+     all and the plugin appears as "nothing but the ring" on phones (matches
+     Windy's official example 04-aircraft-range). -->
+<div class="plugin__mobile-header">
+    ⛈️ { title }
+</div>
 <section class="plugin__content stormtracker-plugin" class:minimized>
     <div class="st-header">
         <span class="st-icon">⛈️</span>
@@ -104,6 +112,7 @@
     import type { LatLon } from '@windy/interfaces';
     import { map } from '@windy/map';
     import bcast from '@windy/broadcast';
+    import { getMyLatestPos } from '@windy/geolocation';
     import { scanForStorms, dbzColor, dbzLabel, degToDir, destPoint, haversine } from './stormScanner';
     import type { StormCell, WindData } from './stormScanner';
     import { fetchLightning, clusterStrikes } from './lightning';
@@ -272,6 +281,15 @@
         if (centerMode === 'gps') {
             const fix = await getGpsFix();
             if (fix) { centerNote = ''; return { lat: fix.lat, lng: fix.lng }; }
+            // v1.5.2: Windy keeps its own last-known position (GPS or IP) —
+            // instant, no permission prompt. Better fallback than map center.
+            try {
+                const wpos = getMyLatestPos();
+                if (wpos && wpos.lat != null && wpos.lon != null && wpos.source !== 'fallback') {
+                    centerNote = wpos.source === 'ip' ? '📍 Approximate (IP) location' : '';
+                    return { lat: wpos.lat, lng: wpos.lon };
+                }
+            } catch {}
             centerNote = '📍 Location unavailable — scanning map center';
         } else {
             centerNote = '';
@@ -471,14 +489,9 @@
            invisibly over the map. Own our background. */
         background: rgba(18, 22, 30, 0.96);
     }
-    @media (max-width: 767px) {
-        .stormtracker-plugin {
-            border-radius: 12px 12px 0 0;
-            max-height: 55vh;
-            overflow-y: auto;
-            -webkit-overflow-scrolling: touch;
-        }
-    }
+    /* v1.5.2: no max-height/scroll overrides on mobile — Windy's small-mode
+       bottom sheet manages its own sizing once plugin__mobile-header exists;
+       fighting it is how v1.5.1 stayed invisible. */
     .stormtracker-plugin.minimized {
         padding: 10px 16px;
     }
