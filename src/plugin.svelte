@@ -103,6 +103,7 @@
     import { onMount, onDestroy } from 'svelte';
     import type { LatLon } from '@windy/interfaces';
     import { map } from '@windy/map';
+    import bcast from '@windy/broadcast';
     import { scanForStorms, dbzColor, dbzLabel, degToDir, destPoint, haversine } from './stormScanner';
     import type { StormCell, WindData } from './stormScanner';
     import { fetchLightning, clusterStrikes } from './lightning';
@@ -195,8 +196,33 @@
         doScan();
     };
 
+    // v1.5.1: while the plugin runs, its small mobile pane can be swiped away
+    // leaving only our map layers (ring/storms) with no way back in. This
+    // on-map ⛈️ button re-opens the pane via rqstOpen. It lives exactly as
+    // long as the plugin does — when the plugin truly closes, layers and
+    // button go away together.
+    let reopenCtl: any = null;
+    function addReopenButton() {
+        try {
+            const Ctl = (L as any).Control.extend({
+                onAdd() {
+                    const btn = L.DomUtil.create('div', 'st-reopen-btn');
+                    btn.innerHTML = '⛈️';
+                    btn.title = 'StormTracker panel';
+                    btn.style.cssText = 'width:36px;height:36px;border-radius:50%;background:rgba(18,22,30,0.92);border:1px solid rgba(255,255,255,0.25);display:flex;align-items:center;justify-content:center;font-size:19px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.4)';
+                    L.DomEvent.disableClickPropagation(btn);
+                    L.DomEvent.on(btn, 'click', () => { try { bcast.emit('rqstOpen', config.name as any); } catch {} });
+                    return btn;
+                },
+            });
+            reopenCtl = new Ctl({ position: 'topright' });
+            reopenCtl.addTo(map);
+        } catch {}
+    }
+
     onMount(() => {
         mounted = true;
+        addReopenButton();
         startAuto();
     });
 
@@ -204,6 +230,7 @@
         mounted = false;
         clearLayers();
         if (rangeCircle) { map.removeLayer(rangeCircle); rangeCircle = null; }
+        if (reopenCtl) { try { map.removeControl(reopenCtl); } catch {} reopenCtl = null; }
         stopAuto();
     });
 
@@ -439,6 +466,18 @@
         font-family: system-ui, -apple-system, sans-serif;
         padding: 14px 16px;
         font-size: 16px;
+        /* v1.5.1: the fullscreen pane used to supply the dark backdrop; the
+           'small' mobile pane doesn't, which left light text floating
+           invisibly over the map. Own our background. */
+        background: rgba(18, 22, 30, 0.96);
+    }
+    @media (max-width: 767px) {
+        .stormtracker-plugin {
+            border-radius: 12px 12px 0 0;
+            max-height: 55vh;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+        }
     }
     .stormtracker-plugin.minimized {
         padding: 10px 16px;
