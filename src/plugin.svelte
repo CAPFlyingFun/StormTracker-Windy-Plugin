@@ -3,8 +3,8 @@
      sheet to plugin__content. Without it the sheet has no collapsed state at
      all and the plugin appears as "nothing but the ring" on phones (matches
      Windy's official example 04-aircraft-range). -->
-<div class="plugin__mobile-header">
-    ⛈️ { title }
+<div class="plugin__mobile-header st-mobile-header">
+    ⛈️ { title }{#if scanSource}<span class="st-mh-status"> · {storms.length} cell{storms.length !== 1 ? 's' : ''}{showLightning && lightning && lightning.strikes.length ? ` · ⚡${lightning.strikes.length}` : ''}</span>{/if}
 </div>
 <section class="plugin__content stormtracker-plugin" class:minimized>
     <div class="st-header">
@@ -492,6 +492,31 @@
     /* v1.5.2: no max-height/scroll overrides on mobile — Windy's small-mode
        bottom sheet manages its own sizing once plugin__mobile-header exists;
        fighting it is how v1.5.1 stayed invisible. */
+    /* v1.5.3: the bare header rendered as a ~12px text sliver half-hidden
+       behind Windy's timeline. Make the collapsed bar a real, thumb-sized
+       target with live status baked in — Windy shows exactly this element's
+       height when the sheet is collapsed, so its size IS the collapsed UI. */
+    :global(.st-mobile-header) {
+        min-height: 52px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0px));
+        background: rgba(18, 22, 30, 0.97);
+        border-radius: 12px 12px 0 0;
+        color: #e6edf5;
+        font-size: 16px;
+        font-weight: 700;
+        box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.35);
+    }
+    :global(.st-mobile-header .st-mh-status) {
+        font-weight: 500;
+        font-size: 13px;
+        color: #9fb0c3;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
     .stormtracker-plugin.minimized {
         padding: 10px 16px;
     }
