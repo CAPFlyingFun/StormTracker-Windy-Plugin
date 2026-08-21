@@ -210,21 +210,37 @@
     // on-map ⛈️ button re-opens the pane via rqstOpen. It lives exactly as
     // long as the plugin does — when the plugin truly closes, layers and
     // button go away together.
+    // v1.5.4: the reopen button grew into a live status CHIP pinned to the
+    // TOP of the map — Windy's small sheet is bottom-anchored by design and
+    // its transform animation breaks position:fixed from inside, so "stuck on
+    // top" is delivered as a map control instead: always visible, shows cells
+    // + strikes at a glance, tap opens the full panel.
     let reopenCtl: any = null;
+    let chipEl: HTMLElement | null = null;
+    function chipText(): string {
+        if (!scanSource) return '⛈️ StormTracker';
+        const bolts = showLightning && lightning && lightning.strikes.length ? ` · ⚡${lightning.strikes.length}` : '';
+        return `⛈️ ${storms.length} cell${storms.length !== 1 ? 's' : ''}${bolts}`;
+    }
+    function updateChip() {
+        if (chipEl) chipEl.textContent = chipText();
+    }
     function addReopenButton() {
         try {
             const Ctl = (L as any).Control.extend({
                 onAdd() {
                     const btn = L.DomUtil.create('div', 'st-reopen-btn');
-                    btn.innerHTML = '⛈️';
+                    btn.textContent = chipText();
                     btn.title = 'StormTracker panel';
-                    btn.style.cssText = 'width:36px;height:36px;border-radius:50%;background:rgba(18,22,30,0.92);border:1px solid rgba(255,255,255,0.25);display:flex;align-items:center;justify-content:center;font-size:19px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.4)';
+                    btn.style.cssText = 'height:34px;padding:0 12px;border-radius:17px;background:rgba(18,22,30,0.92);border:1px solid rgba(255,255,255,0.25);display:flex;align-items:center;justify-content:center;font:600 13px/1 system-ui,sans-serif;color:#e6edf5;white-space:nowrap;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.4)';
                     L.DomEvent.disableClickPropagation(btn);
                     L.DomEvent.on(btn, 'click', () => { try { bcast.emit('rqstOpen', config.name as any); } catch {} });
+                    chipEl = btn;
                     return btn;
                 },
+                onRemove() { chipEl = null; },
             });
-            reopenCtl = new Ctl({ position: 'topright' });
+            reopenCtl = new Ctl({ position: 'topleft' });
             reopenCtl.addTo(map);
         } catch {}
     }
@@ -342,6 +358,7 @@
             scanSource = result.source;
             windData = result.wind;
             lightning = ltg;
+            updateChip();
             setTimeout(() => replot(), 0);
         } catch (e) {
             scanSource = 'Scan failed';

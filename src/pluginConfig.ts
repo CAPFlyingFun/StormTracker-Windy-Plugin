@@ -2,7 +2,7 @@ import type { ExternalPluginConfig } from '@windy/interfaces';
 
 const config: ExternalPluginConfig = {
     name: 'windy-plugin-stormtracker',
-    version: '1.5.3',
+    version: '1.5.4',
     icon: '⛈️',
     title: 'StormTracker',
     description: 'Real-time radar-based storm cell detection with movement arrows, track cones, and observed lightning (NOAA GOES GLM). Powered by RainViewer & NEXRAD.',
