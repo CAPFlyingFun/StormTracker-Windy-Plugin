@@ -18,9 +18,9 @@
                 <div class="st-card-sub">{updating ? 'Updating…' : 'Tap to update in place'}</div>
             </div>
         {/if}
-        <div class="st-card st-card-status">
-            <div class="st-card-title">⛈️ {storms.length} cell{storms.length !== 1 ? 's' : ''}</div>
-            <div class="st-card-sub">{scanSource || 'No scan yet'}{windData ? ` · ${windData.speed} mph ${degToDir(windData.direction)}` : ''}{showLightning && lightning && lightning.strikes.length ? ` · ⚡${lightning.strikes.length}` : ''}</div>
+        <div class="st-card st-card-status" on:click={forceUpdateCheck} title="Tap to check for updates">
+            <div class="st-card-title">⛈️ {storms.length} cell{storms.length !== 1 ? 's' : ''} <span class="st-card-ver">v{config.version}</span></div>
+            <div class="st-card-sub">{updateCheckNote || `${scanSource || 'No scan yet'}${windData ? ` · ${windData.speed} mph ${degToDir(windData.direction)}` : ''}${showLightning && lightning && lightning.strikes.length ? ` · ⚡${lightning.strikes.length}` : ''}`}</div>
             {#if centerNote}<div class="st-card-sub st-warn">{centerNote}</div>{/if}
         </div>
         <div class="st-card">
@@ -342,10 +342,21 @@
         }
         return false;
     }
+    let updateCheckNote = '';
+    async function forceUpdateCheck() {
+        try { localStorage.removeItem('st-wp-updateInfo'); } catch {}
+        updateCheckNote = 'Checking for updates…';
+        await checkForUpdate();
+        updateCheckNote = updateAvail ? '' : `✓ v${config.version} is the latest`;
+        setTimeout(() => { updateCheckNote = ''; }, 4000);
+    }
     async function checkForUpdate() {
         try {
             const cached = JSON.parse(localStorage.getItem('st-wp-updateInfo') || 'null');
-            if (cached && Date.now() - cached.at < 6 * 3600 * 1000) {
+            // v2.0.1: 15 min, was 6 h — the long cache raced the very first
+            // publish (checked before the new version landed, then went quiet
+            // for six hours). One tiny JSON fetch per 15 min is negligible.
+            if (cached && Date.now() - cached.at < 15 * 60 * 1000) {
                 if (cached.latest && _semverNewer(cached.latest, config.version)) updateAvail = cached.latest;
                 return;
             }
@@ -801,6 +812,7 @@
     }
     :global(.st-mobile-header .st-mh-ver) { font-size: 11px; font-weight: 500; color: #7c8da0; }
     .st-title-ver { font-size: 11px; font-weight: 500; color: #7c8da0; vertical-align: middle; }
+    .st-card-ver { font-size: 10px; font-weight: 500; color: #7c8da0; }
     :global(.st-mobile-header .st-mh-update) {
         margin-left: 8px;
         font-size: 11px;
