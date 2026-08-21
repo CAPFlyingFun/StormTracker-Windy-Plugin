@@ -6,6 +6,68 @@
 <div class="plugin__mobile-header st-mobile-header">
     ⛈️ { title }{#if scanSource}<span class="st-mh-status"> · {storms.length} cell{storms.length !== 1 ? 's' : ''}{showLightning && lightning && lightning.strikes.length ? ` · ⚡${lightning.strikes.length}` : ''}</span>{/if}
 </div>
+{#if isMobileOrTablet}
+    <!-- v1.6.0: horizontal swipe strip on phones (the boat-tracker pattern
+         from Windy's official examples — user-requested after seeing another
+         plugin do it): one short row, swipe sideways through status, controls
+         and storm cards. The sheet stays low so the map stays visible. -->
+    <section class="stormtracker-plugin st-strip">
+        <div class="st-card st-card-status">
+            <div class="st-card-title">⛈️ {storms.length} cell{storms.length !== 1 ? 's' : ''}</div>
+            <div class="st-card-sub">{scanSource || 'No scan yet'}{windData ? ` · ${windData.speed} mph ${degToDir(windData.direction)}` : ''}{showLightning && lightning && lightning.strikes.length ? ` · ⚡${lightning.strikes.length}` : ''}</div>
+            {#if centerNote}<div class="st-card-sub st-warn">{centerNote}</div>{/if}
+        </div>
+        <div class="st-card">
+            <div class="st-card-title">Mode</div>
+            <div class="st-mini-group">
+                <button class="st-btn" class:active={displayMode === 'off'} on:click={() => setMode('off')}>Off</button>
+                <button class="st-btn" class:active={displayMode === 'inbound'} on:click={() => setMode('inbound')}>Inbound</button>
+                <button class="st-btn" class:active={displayMode === 'all'} on:click={() => setMode('all')}>All</button>
+            </div>
+        </div>
+        <div class="st-card">
+            <div class="st-card-title">Radius</div>
+            <div class="st-mini-group">
+                <button class="st-btn" class:active={scanRadius === 40} on:click={() => setRadius(40)}>40</button>
+                <button class="st-btn" class:active={scanRadius === 80} on:click={() => setRadius(80)}>80</button>
+                <button class="st-btn" class:active={scanRadius === 120} on:click={() => setRadius(120)}>120</button>
+            </div>
+        </div>
+        <div class="st-card">
+            <div class="st-card-title">Center</div>
+            <div class="st-mini-group">
+                <button class="st-btn" class:active={centerMode === 'gps'} on:click={() => setCenterMode('gps')}>📍 Me</button>
+                <button class="st-btn" class:active={centerMode === 'map'} on:click={() => setCenterMode('map')}>🗺️ Map</button>
+            </div>
+        </div>
+        <div class="st-card">
+            <div class="st-card-title">Layers</div>
+            <div class="st-mini-checks">
+                <label class="st-check"><input type="checkbox" bind:checked={showPoints} on:change={replot} /> Points</label>
+                <label class="st-check"><input type="checkbox" bind:checked={showArrows} on:change={replot} /> Arrows</label>
+                <label class="st-check"><input type="checkbox" bind:checked={showTracks} on:change={replot} /> Cones</label>
+                <label class="st-check"><input type="checkbox" bind:checked={showLightning} on:change={replot} /> ⚡</label>
+            </div>
+        </div>
+        <div class="st-card">
+            <div class="st-card-title">Scan</div>
+            <div class="st-mini-group">
+                <button class="st-btn st-btn-go" on:click={doScan} disabled={scanning}>{scanning ? '…' : '🔍 Now'}</button>
+                {#if autoScan}
+                    <button class="st-btn st-btn-stop" on:click={stopAuto}>⏹ Auto</button>
+                {:else}
+                    <button class="st-btn" on:click={startAuto}>▶ Auto</button>
+                {/if}
+            </div>
+        </div>
+        {#each visibleStorms as storm}
+            <div class="st-card st-card-storm" on:click={() => panToStorm(storm)}>
+                <div class="st-card-title"><span class="st-dbz" style="background:{dbzColor(storm.dbz)};color:{storm.dbz >= 40 ? '#000' : '#fff'}">{storm.dbz}</span> {storm.dist.toFixed(0)} mi {degToDir(storm.bearing)}</div>
+                <div class="st-card-sub">{dbzLabel(storm.dbz)}{storm.eta && storm.eta.approaching ? ` · ⏱ ${storm.eta.minutes} min` : ''}</div>
+            </div>
+        {/each}
+    </section>
+{:else}
 <section class="plugin__content stormtracker-plugin" class:minimized>
     <div class="st-header">
         <span class="st-icon">⛈️</span>
@@ -106,6 +168,7 @@
         </div>
     {/if}
 </section>
+{/if}
 
 <script lang="ts">
     import { onMount, onDestroy } from 'svelte';
@@ -113,6 +176,7 @@
     import { map } from '@windy/map';
     import bcast from '@windy/broadcast';
     import { getMyLatestPos } from '@windy/geolocation';
+    import { isMobileOrTablet } from '@windy/rootScope';
     import { scanForStorms, dbzColor, dbzLabel, degToDir, destPoint, haversine } from './stormScanner';
     import type { StormCell, WindData } from './stormScanner';
     import { fetchLightning, clusterStrikes } from './lightning';
@@ -618,6 +682,44 @@
     @keyframes spin { to { transform: rotate(360deg); } }
     .st-source { font-size: 14px; color: #888; margin-bottom: 10px; text-align: center; }
     .st-center-note { font-size: 12px; color: #f0ad4e; margin-top: 4px; }
+    /* v1.6.0: horizontal mobile strip (boat-tracker pattern) — one short row,
+       swipe sideways. Cards are fixed-width flex items; the strip scrolls x. */
+    .st-strip {
+        display: flex;
+        flex-direction: row;
+        align-items: stretch;
+        gap: 10px;
+        overflow-x: auto;
+        overflow-y: hidden;
+        -webkit-overflow-scrolling: touch;
+        padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+        background: rgba(18, 22, 30, 0.97);
+    }
+    .st-strip::-webkit-scrollbar { display: none; }
+    .st-card {
+        flex: 0 0 auto;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 10px;
+        padding: 8px 10px;
+        min-width: 96px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 6px;
+    }
+    .st-card-title { font-size: 13px; font-weight: 700; color: #e6edf5; white-space: nowrap; }
+    .st-card-sub { font-size: 11px; color: #9fb0c3; white-space: nowrap; }
+    .st-card-sub.st-warn { color: #f0ad4e; }
+    .st-card-status { border-color: rgba(59, 130, 246, 0.45); }
+    .st-card-storm { cursor: pointer; }
+    .st-card-storm .st-dbz { font-size: 11px; padding: 1px 6px; border-radius: 8px; font-weight: 800; }
+    .st-mini-group { display: flex; gap: 6px; }
+    .st-mini-group .st-btn { font-size: 12px; padding: 6px 9px; }
+    .st-btn-go { background: rgba(59, 130, 246, 0.35); }
+    .st-btn-stop { background: rgba(220, 60, 60, 0.4); }
+    .st-mini-checks { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 10px; }
+    .st-mini-checks .st-check { font-size: 11px; white-space: nowrap; }
     .minimized .st-source { margin-bottom: 0; }
     .st-list { max-height: 400px; overflow-y: auto; }
     .st-storm {
