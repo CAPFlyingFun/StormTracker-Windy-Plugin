@@ -4,7 +4,7 @@
      all and the plugin appears as "nothing but the ring" on phones (matches
      Windy's official example 04-aircraft-range). -->
 <div class="plugin__mobile-header st-mobile-header">
-    ⛈️ { title }{#if updateAvail}<span class="st-mh-update">⬆️ v{updateAvail}</span>{/if}{#if scanSource}<span class="st-mh-status"> · {storms.length} cell{storms.length !== 1 ? 's' : ''}{showLightning && lightning && lightning.strikes.length ? ` · ⚡${lightning.strikes.length}` : ''}</span>{/if}
+    ⛈️ { title } <span class="st-mh-ver">v{config.version}</span>{#if updateAvail}<span class="st-mh-update">⬆️ v{updateAvail}</span>{/if}{#if scanSource}<span class="st-mh-status"> · {storms.length} cell{storms.length !== 1 ? 's' : ''}{showLightning && lightning && lightning.strikes.length ? ` · ⚡${lightning.strikes.length}` : ''}</span>{/if}
 </div>
 {#if isMobileOrTablet}
     <!-- v1.6.0: horizontal swipe strip on phones (the boat-tracker pattern
@@ -77,7 +77,7 @@
 <section class="plugin__content stormtracker-plugin" class:minimized>
     <div class="st-header">
         <span class="st-icon">⛈️</span>
-        <span class="st-title">{title}</span>
+        <span class="st-title">{title} <span class="st-title-ver">v{config.version}</span></span>
         <span class="st-header-spacer"></span>
         <button class="st-minimize-btn" on:click={toggleMinimize}>{minimized ? '▲' : '▼'}</button>
     </div>
@@ -799,6 +799,8 @@
         cursor: pointer;
         text-align: center;
     }
+    :global(.st-mobile-header .st-mh-ver) { font-size: 11px; font-weight: 500; color: #7c8da0; }
+    .st-title-ver { font-size: 11px; font-weight: 500; color: #7c8da0; vertical-align: middle; }
     :global(.st-mobile-header .st-mh-update) {
         margin-left: 8px;
         font-size: 11px;
