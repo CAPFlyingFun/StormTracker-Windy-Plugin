@@ -26,6 +26,17 @@
         </div>
 
         <div class="st-controls">
+            <label class="st-label">Scan Center</label>
+            <div class="st-toggle-group">
+                <button class="st-btn" class:active={centerMode === 'gps'} on:click={() => setCenterMode('gps')}>📍 My location</button>
+                <button class="st-btn" class:active={centerMode === 'map'} on:click={() => setCenterMode('map')}>🗺️ Map center</button>
+            </div>
+            {#if centerNote}
+                <div class="st-center-note">{centerNote}</div>
+            {/if}
+        </div>
+
+        <div class="st-controls">
             <label class="st-label">Layers</label>
             <div class="st-checks">
                 <label class="st-check"><input type="checkbox" bind:checked={showPoints} on:change={replot} /> Storm Points</label>
@@ -115,6 +126,15 @@
     let windData: WindData | null = null;
     let mounted = false;
     let minimized = false;
+    // v1.5.0: scan center follows the USER by default, not wherever the map
+    // happens to be panned — the #1 field complaint was the range circle
+    // sitting hundreds of miles away. 'gps' = device location (falls back to
+    // map center if denied/unavailable); 'map' = old behavior. Persisted.
+    let centerMode: 'gps' | 'map' =
+        ((): 'gps' | 'map' => { try { return (localStorage.getItem('st-wp-centerMode') as any) === 'map' ? 'map' : 'gps'; } catch { return 'gps'; } })();
+    let gpsFix: { lat: number; lng: number; ts: number } | null = null;
+    let lastCenter: { lat: number; lng: number } | null = null;
+    let centerNote = '';
 
     let pointMarkers: any[] = [];
     let arrowLines: any[] = [];
@@ -198,8 +218,49 @@
         ltgMarkers = [];
     }
 
+    // Device GPS with an 8s timeout; caches the fix for 5 min so auto scans
+    // don't hammer the sensor. Resolves null on denial/timeout — callers fall
+    // back to the map center and say so in the status line.
+    function getGpsFix(): Promise<{ lat: number; lng: number } | null> {
+        if (gpsFix && Date.now() - gpsFix.ts < 300000) return Promise.resolve(gpsFix);
+        if (!('geolocation' in navigator)) return Promise.resolve(null);
+        return new Promise(resolve => {
+            let settled = false;
+            const done = (v: { lat: number; lng: number } | null) => { if (!settled) { settled = true; resolve(v); } };
+            try {
+                navigator.geolocation.getCurrentPosition(
+                    pos => {
+                        gpsFix = { lat: pos.coords.latitude, lng: pos.coords.longitude, ts: Date.now() };
+                        done(gpsFix);
+                    },
+                    () => done(null),
+                    { enableHighAccuracy: false, timeout: 8000, maximumAge: 120000 },
+                );
+                setTimeout(() => done(null), 9000);
+            } catch { done(null); }
+        });
+    }
+
+    async function resolveScanCenter(): Promise<{ lat: number; lng: number }> {
+        if (centerMode === 'gps') {
+            const fix = await getGpsFix();
+            if (fix) { centerNote = ''; return { lat: fix.lat, lng: fix.lng }; }
+            centerNote = '📍 Location unavailable — scanning map center';
+        } else {
+            centerNote = '';
+        }
+        return getVisibleMapCenter();
+    }
+
+    function setCenterMode(m: 'gps' | 'map') {
+        centerMode = m;
+        try { localStorage.setItem('st-wp-centerMode', m); } catch {}
+        if (m === 'gps') gpsFix = null; // force a fresh fix on the tap
+        doScan(true);
+    }
+
     function updateRangeCircle() {
-        const vc = getVisibleMapCenter();
+        const vc = lastCenter || getVisibleMapCenter();
         if (rangeCircle) { map.removeLayer(rangeCircle); rangeCircle = null; }
         rangeCircle = L.circle([vc.lat, vc.lng], {
             radius: scanRadius * 1609.34,
@@ -211,10 +272,18 @@
         }).addTo(map);
     }
 
-    async function doScan() {
+    async function doScan(recenter = false) {
         if (scanning) return;
         scanning = true;
-        const vc = getVisibleMapCenter();
+        const vc = await resolveScanCenter();
+        // Recenter the map when the scan center just jumped (fresh GPS fix or
+        // an explicit 📍 tap) so the circle and your storms are on screen —
+        // but never yank the map on routine auto scans.
+        const firstCenter = !lastCenter;
+        lastCenter = vc;
+        if ((recenter || firstCenter) && centerMode === 'gps' && !centerNote) {
+            try { map.setView([vc.lat, vc.lng], Math.max(map.getZoom(), 7)); } catch {}
+        }
         updateRangeCircle();
         try {
             // Radar scan and the (keyless, quota-free) GLM lightning fetch run
@@ -454,6 +523,7 @@
     }
     @keyframes spin { to { transform: rotate(360deg); } }
     .st-source { font-size: 14px; color: #888; margin-bottom: 10px; text-align: center; }
+    .st-center-note { font-size: 12px; color: #f0ad4e; margin-top: 4px; }
     .minimized .st-source { margin-bottom: 0; }
     .st-list { max-height: 400px; overflow-y: auto; }
     .st-storm {
