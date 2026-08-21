@@ -4,7 +4,7 @@
      all and the plugin appears as "nothing but the ring" on phones (matches
      Windy's official example 04-aircraft-range). -->
 <div class="plugin__mobile-header st-mobile-header">
-    ⛈️ { title }{#if scanSource}<span class="st-mh-status"> · {storms.length} cell{storms.length !== 1 ? 's' : ''}{showLightning && lightning && lightning.strikes.length ? ` · ⚡${lightning.strikes.length}` : ''}</span>{/if}
+    ⛈️ { title }{#if updateAvail}<span class="st-mh-update">⬆️ v{updateAvail}</span>{/if}{#if scanSource}<span class="st-mh-status"> · {storms.length} cell{storms.length !== 1 ? 's' : ''}{showLightning && lightning && lightning.strikes.length ? ` · ⚡${lightning.strikes.length}` : ''}</span>{/if}
 </div>
 {#if isMobileOrTablet}
     <!-- v1.6.0: horizontal swipe strip on phones (the boat-tracker pattern
@@ -12,6 +12,12 @@
          plugin do it): one short row, swipe sideways through status, controls
          and storm cards. The sheet stays low so the map stays visible. -->
     <section class="stormtracker-plugin st-strip">
+        {#if updateAvail}
+            <div class="st-card st-card-update" on:click={doUpdate}>
+                <div class="st-card-title">⬆️ v{updateAvail} available</div>
+                <div class="st-card-sub">{updating ? 'Updating…' : 'Tap to update in place'}</div>
+            </div>
+        {/if}
         <div class="st-card st-card-status">
             <div class="st-card-title">⛈️ {storms.length} cell{storms.length !== 1 ? 's' : ''}</div>
             <div class="st-card-sub">{scanSource || 'No scan yet'}{windData ? ` · ${windData.speed} mph ${degToDir(windData.direction)}` : ''}{showLightning && lightning && lightning.strikes.length ? ` · ⚡${lightning.strikes.length}` : ''}</div>
@@ -75,6 +81,12 @@
         <span class="st-header-spacer"></span>
         <button class="st-minimize-btn" on:click={toggleMinimize}>{minimized ? '▲' : '▼'}</button>
     </div>
+
+    {#if updateAvail}
+        <div class="st-update-banner" on:click={doUpdate}>
+            ⬆️ v{updateAvail} available — {updating ? 'updating…' : 'click to update in place'}
+        </div>
+    {/if}
 
     {#if !minimized}
         <div class="st-controls">
@@ -177,6 +189,7 @@
     import bcast from '@windy/broadcast';
     import { getMyLatestPos } from '@windy/geolocation';
     import { isMobileOrTablet } from '@windy/rootScope';
+    import { installExternalPlugin } from '@windy/externalPlugins';
     import { scanForStorms, dbzColor, dbzLabel, degToDir, destPoint, haversine } from './stormScanner';
     import type { StormCell, WindData } from './stormScanner';
     import { fetchLightning, clusterStrikes } from './lightning';
@@ -309,10 +322,62 @@
         } catch {}
     }
 
+    // ── v1.8.0: in-place self-update ────────────────────────────────────────
+    // The published plugin lives at a VERSIONED windy-plugins.com URL, so an
+    // installed copy never changes on its own. On open (throttled to one
+    // network check per 6 h) we compare our built-in version against the
+    // repo's package.json; when a newer version exists, an Update button
+    // appears and one tap re-installs from the new URL via Windy's own
+    // installExternalPlugin — same plugin name, so it replaces in place. No
+    // more copy-pasting fresh links.
+    const UPDATE_BASE = 'https://windy-plugins.com/800103/windy-plugin-stormtracker';
+    const VERSION_SRC = 'https://raw.githubusercontent.com/CAPFlyingFun/StormTracker-Windy-Plugin/main/package.json';
+    let updateAvail: string | null = null;
+    let updating = false;
+    function _semverNewer(a: string, b: string): boolean {
+        const pa = a.split('.').map(Number), pb = b.split('.').map(Number);
+        for (let i = 0; i < 3; i++) {
+            if ((pa[i] || 0) > (pb[i] || 0)) return true;
+            if ((pa[i] || 0) < (pb[i] || 0)) return false;
+        }
+        return false;
+    }
+    async function checkForUpdate() {
+        try {
+            const cached = JSON.parse(localStorage.getItem('st-wp-updateInfo') || 'null');
+            if (cached && Date.now() - cached.at < 6 * 3600 * 1000) {
+                if (cached.latest && _semverNewer(cached.latest, config.version)) updateAvail = cached.latest;
+                return;
+            }
+        } catch {}
+        try {
+            const r = await fetch(VERSION_SRC, { cache: 'no-cache', signal: AbortSignal.timeout(10000) });
+            if (!r.ok) return;
+            const pkg = await r.json();
+            const latest = typeof pkg.version === 'string' ? pkg.version : null;
+            try { localStorage.setItem('st-wp-updateInfo', JSON.stringify({ at: Date.now(), latest })); } catch {}
+            if (latest && _semverNewer(latest, config.version)) updateAvail = latest;
+        } catch {}
+    }
+    async function doUpdate() {
+        if (!updateAvail || updating) return;
+        updating = true;
+        try {
+            await installExternalPlugin(`${UPDATE_BASE}/${updateAvail}/plugin.min.js`, 'url');
+            try { localStorage.removeItem('st-wp-updateInfo'); } catch {}
+            // the new version replaces this instance — reopen it
+            setTimeout(() => { try { bcast.emit('rqstOpen', config.name as any); } catch {} }, 500);
+        } catch (e) {
+            updating = false;
+            centerNote = '⬆️ Update failed — try again later';
+        }
+    }
+
     onMount(() => {
         mounted = true;
         addReopenButton();
         startAuto();
+        checkForUpdate();
     });
 
     onDestroy(() => {
@@ -720,6 +785,30 @@
     .st-btn-stop { background: rgba(220, 60, 60, 0.4); }
     .st-mini-checks { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 10px; }
     .st-mini-checks .st-check { font-size: 11px; white-space: nowrap; }
+    /* v1.8.0: in-place update affordances */
+    .st-card-update { border-color: rgba(102, 187, 106, 0.6); background: rgba(76, 175, 80, 0.12); cursor: pointer; }
+    .st-update-banner {
+        background: rgba(76, 175, 80, 0.14);
+        border: 1px solid rgba(102, 187, 106, 0.5);
+        border-radius: 8px;
+        padding: 8px 12px;
+        margin-bottom: 10px;
+        font-size: 13px;
+        font-weight: 600;
+        color: #9ee6a2;
+        cursor: pointer;
+        text-align: center;
+    }
+    :global(.st-mobile-header .st-mh-update) {
+        margin-left: 8px;
+        font-size: 11px;
+        font-weight: 800;
+        color: #9ee6a2;
+        background: rgba(76, 175, 80, 0.18);
+        border: 1px solid rgba(102, 187, 106, 0.5);
+        border-radius: 8px;
+        padding: 1px 7px;
+    }
     .minimized .st-source { margin-bottom: 0; }
     .st-list { max-height: 400px; overflow-y: auto; }
     .st-storm {
