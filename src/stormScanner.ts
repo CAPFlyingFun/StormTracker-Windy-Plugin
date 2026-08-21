@@ -112,40 +112,13 @@ export function degToDir(deg: number): string {
   return dirs[Math.round(deg / 22.5) % 16];
 }
 
-function rvToDbz(r: number, g: number, b: number, a: number): number {
-  if (a < 30) return 0;
-  if (r >= 254 && g < 20 && b >= 254) return 65;
-  if (r >= 200 && g < 60 && b >= 200) return 60;
-  if (r >= 230 && g < 40 && b < 80) return 55;
-  if (r >= 200 && g < 40 && b < 40) return 50;
-  if (r >= 200 && g >= 120 && b < 40) return 45;
-  if (r >= 200 && g >= 200 && b < 40) return 40;
-  if (r >= 140 && r <= 200 && g >= 200 && b < 40) return 37;
-  if (g >= 200 && r < 100 && b < 100) return 33;
-  if (g >= 180 && r < 60 && b >= 140) return 28;
-  if (r < 80 && g >= 200 && b >= 200) return 22;
-  if (r < 40 && g < 180 && b >= 200) return 18;
-  if (a >= 30 && a < 100) return 12;
-  const mx = Math.max(r, g, b);
-  if (mx < 60) return 10;
-  return Math.round(15 + (mx / 255) * 45);
-}
-
-function nexradToDbz(r: number, g: number, b: number, a: number): number {
-  if (a < 30) return 0;
-  if (r >= 254 && g < 20 && b >= 254) return 70;
-  if (r >= 230 && g < 50 && b >= 230) return 65;
-  if (r >= 250 && g >= 250 && b >= 250) return 60;
-  if (r >= 200 && g < 50 && b < 80) return 55;
-  if (r >= 230 && g < 30 && b < 30) return 50;
-  if (r >= 200 && g >= 100 && b < 40) return 45;
-  if (r >= 200 && g >= 200 && b < 40) return 40;
-  if (g >= 200 && r < 100 && b < 100) return 35;
-  if (g >= 140 && r < 60 && b < 60) return 30;
-  if (r < 40 && g < 200 && b >= 200) return 25;
-  if (r < 40 && g < 120 && b >= 160) return 20;
-  return Math.round(10 + (Math.max(r, g, b) / 255) * 40);
-}
+// v1.7.0: pixel→dBZ decoding now comes from the vendored radar-shared module
+// — the exact parity-tested palette tables the main StormTracker app and its
+// push scanner run — replacing the hand-rolled RGB threshold chains that had
+// drifted from what the app actually detects. Same source also provides the
+// corrupted-tile screen (v6.83: a bad radar site polluting the composite must
+// not become storms) and the clutter screen.
+import { nexradToDbz, rvToDbz, radarTileCorrupt, isClutterCells } from './radarShared';
 
 async function decodeRvRgba(buf: ArrayBuffer) {
   const v = new DataView(buf);
@@ -294,6 +267,10 @@ async function scanTile(
             pts.push({ lat: ptLat, lng: ptLon, dbz, dist });
         }
       }
+      if (radarTileCorrupt(pts)) {
+        console.warn(`[StormTracker] corrupt radar tile rejected z${zoom} ${tx}/${ty} (${pts.length} pts extreme-dBZ wall)`);
+        return [];
+      }
       return pts;
     } catch {
       return [];
@@ -335,53 +312,63 @@ async function scanTile(
       }
     }
   }
+  if (radarTileCorrupt(pts)) {
+    console.warn(`[StormTracker] corrupt radar tile rejected z${zoom} ${tx}/${ty} (${pts.length} pts extreme-dBZ wall)`);
+    return [];
+  }
   return pts;
 }
 
+// v1.7.0: port of the main app / push scanner's spacingFilter — replaces the
+// old fixed-degree grid clustering (which merged unrelated storms into one
+// blob or split one storm across grid lines). Same behavior as the app:
+// isolated weak echoes are dropped unless they have a neighbor, cells are
+// seeded strongest-first, and merge spacing tightens with intensity
+// (0.8 mi at 45+, 1.2 mi at 35+, 1.8 mi below).
 function clusterPoints(
   pts: RawPoint[],
-  gridSize: number,
+  _gridSize: number,
   centerLat: number,
   centerLon: number,
 ): StormCell[] {
   if (!pts.length) return [];
-  const cells = new Map<
-    string,
-    { lats: number[]; lngs: number[]; dbzs: number[]; maxDbz: number }
-  >();
-  for (const p of pts) {
-    const gx = Math.floor(p.lng / gridSize);
-    const gy = Math.floor(p.lat / gridSize);
-    const key = `${gx}_${gy}`;
-    let c = cells.get(key);
-    if (!c) {
-      c = { lats: [], lngs: [], dbzs: [], maxDbz: 0 };
-      cells.set(key, c);
+  const validPoints = pts.filter(p => {
+    if (p.dbz >= 30) return true;
+    const radius = p.dbz >= 25 ? 5 : 8;
+    for (const q of pts) {
+      if (q === p) continue;
+      const dx = (p.lat - q.lat) * 69,
+        dy = (p.lng - q.lng) * 69 * Math.cos(p.lat * DEG2RAD);
+      if (Math.sqrt(dx * dx + dy * dy) < radius) return true;
     }
-    c.lats.push(p.lat);
-    c.lngs.push(p.lng);
-    c.dbzs.push(p.dbz);
-    if (p.dbz > c.maxDbz) c.maxDbz = p.dbz;
+    return false;
+  });
+  validPoints.sort((a, b) => b.dbz - a.dbz);
+  const out: StormCell[] = [];
+  for (const p of validPoints) {
+    const minSpacing = p.dbz >= 45 ? 0.8 : p.dbz >= 35 ? 1.2 : 1.8;
+    let merged = false;
+    for (const e of out) {
+      if (haversine(p.lat, p.lng, e.lat, e.lng) < minSpacing) {
+        if (p.dbz > e.dbz) e.dbz = p.dbz;
+        merged = true;
+        break;
+      }
+    }
+    if (!merged) {
+      out.push({
+        lat: p.lat,
+        lng: p.lng,
+        dbz: p.dbz,
+        dist: haversine(centerLat, centerLon, p.lat, p.lng),
+        bearing: bearing(centerLat, centerLon, p.lat, p.lng),
+        eta: null,
+        track: null,
+      });
+    }
   }
-  const storms: StormCell[] = [];
-  for (const c of cells.values()) {
-    if (c.dbzs.length < 2) continue;
-    const lat = c.lats.reduce((a, b) => a + b) / c.lats.length;
-    const lng = c.lngs.reduce((a, b) => a + b) / c.lngs.length;
-    const dist = haversine(centerLat, centerLon, lat, lng);
-    const brg = bearing(centerLat, centerLon, lat, lng);
-    storms.push({
-      lat,
-      lng,
-      dbz: c.maxDbz,
-      dist,
-      bearing: brg,
-      eta: null,
-      track: null,
-    });
-  }
-  storms.sort((a, b) => a.dist - b.dist);
-  return storms;
+  out.sort((a, b) => a.dist - b.dist);
+  return out;
 }
 
 const NEXRAD_SITES = [
@@ -721,7 +708,12 @@ export async function scanForStorms(
     allPts.push(...rvPoints);
   }
 
-  const storms = clusterPoints(allPts, gridSize, centerLat, centerLon);
+  let storms = clusterPoints(allPts, gridSize, centerLat, centerLon);
+
+  // v1.7.0: shared clutter screen — a handful of weak stationary echoes
+  // (ground clutter, birds, chaff) is not weather. Same rule the app and the
+  // push scanner apply, so all three agree on "all clear".
+  if (isClutterCells(storms)) storms = [];
 
   const snap: ScanSnapshot = {
     ts: Date.now(),
