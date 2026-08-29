@@ -214,10 +214,12 @@
             scanSource = result.source;
             windData = result.wind;
             setTimeout(() => replot(), 0);
-        } catch (e) {
-            scanSource = 'Scan failed';
-        }
-        scanning = false;
+        } catch (error) {
+    console.warn("[StormTracker] Scan failed", error);
+    scanSource = 'Scan failed';
+} finally {
+    scanning = false;
+}
     }
 
     function startAuto() {

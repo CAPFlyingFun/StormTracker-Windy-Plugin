@@ -274,7 +274,12 @@ async function scanTile(
   if (isRV) {
     try {
       const res = await fetch(url);
-      if (!res.ok) return [];
+      if (!res.ok) {
+  console.warn(
+    `[StormTracker] RainViewer radar tile failed: ${res.status} ${url}`,
+  );
+  return [];
+}
       const buf = await res.arrayBuffer();
       const { w, h, data } = await decodeRvRgba(buf);
       const pts: RawPoint[] = [];
@@ -295,9 +300,13 @@ async function scanTile(
         }
       }
       return pts;
-    } catch {
-      return [];
-    }
+    } catch (error) {
+  console.warn(
+    "[StormTracker] RainViewer radar tile could not be processed",
+    error,
+  );
+  return [];
+}
   }
   const img = await new Promise<HTMLImageElement | null>((resolve) => {
     const im = new Image();
@@ -640,13 +649,26 @@ export async function scanForStorms(
 
   let rvPath = "";
   let source = "RainViewer";
-  try {
-    const rv = await fetch(
-      "https://api.rainviewer.com/public/weather-maps.json",
-    ).then((r) => r.json());
+    try {
+  const response = await fetch(
+    "https://api.rainviewer.com/public/weather-maps.json",
+  );
+
+  if (!response.ok) {
+    console.warn(
+      `[StormTracker] RainViewer metadata request failed: ${response.status}`,
+    );
+  } else {
+    const rv = await response.json();
     const frames = (rv.radar?.past || []).concat(rv.radar?.nowcast || []);
-    if (frames.length) rvPath = frames[frames.length - 1].path;
-  } catch {}
+
+    if (frames.length) {
+      rvPath = frames[frames.length - 1].path;
+    }
+  }
+} catch (error) {
+  console.warn("[StormTracker] RainViewer metadata unavailable", error);
+}
 
   const tiles = buildScanTiles(centerLat, centerLon, zoom);
 
@@ -715,8 +737,7 @@ export async function scanForStorms(
           scanRadius,
           step,
         ),
-      ),
-    );
+      );
   }
 
   const storms = clusterPoints(allPts, gridSize, centerLat, centerLon);
