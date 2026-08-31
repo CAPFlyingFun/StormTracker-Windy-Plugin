@@ -104,17 +104,17 @@
     let showTracks = true;
     let scanning = false;
     let autoScan = true;
-    let autoTimer: any = null;
+    let autoTimer: ReturnType<typeof setInterval> | null = null;
     let storms: StormCell[] = [];
     let scanSource = '';
     let windData: WindData | null = null;
     let mounted = false;
     let minimized = false;
 
-    let pointMarkers: any[] = [];
-    let arrowLines: any[] = [];
-    let trackPolys: any[] = [];
-    let rangeCircle: any = null;
+    let pointMarkers: L.Layer[] = [];
+    let arrowLines: L.Polyline[] = [];
+    let trackPolys: L.Polygon[] = [];
+    let rangeCircle: L.Circle | null = null;
 
     $: visibleStorms = getVisibleStorms(storms, displayMode);
 

@@ -263,7 +263,7 @@ async function scanTile(
   tx: number,
   ty: number,
   zoom: number,
-  colorFn: Function,
+  colorFn: (r: number, g: number, b: number, a: number) => number,
   minDbz: number,
   centerLat: number,
   centerLon: number,
@@ -463,7 +463,7 @@ function buildCellTracks(prev: ScanSnapshot, curr: ScanSnapshot) {
   if (dtHrs <= 0 || dtHrs > 1) return;
   const tracks: Record<string, CellTrack> = {};
   for (const c of curr.cells) {
-    let best = null,
+    let best: ScanSnapshot["cells"][number] | null = null,
       bestD = Infinity;
     for (const p of prev.cells) {
       const d = haversine(c.lat, c.lng, p.lat, p.lng);
