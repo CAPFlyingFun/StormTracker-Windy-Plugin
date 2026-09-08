@@ -24,5 +24,13 @@
       ]
     }
   },
-  "include": ["**/*.ts", "**/*.svelte"]
+  // v2.0.2: pull Windy's Leaflet typings into the program so `L.Layer`,
+  // `L.Polyline`, `L.Circle` etc. actually resolve. Without this the L
+  // namespace is only a runtime global and any L.* annotation is a type
+  // that silently does not exist.
+  "include": [
+    "**/*.ts",
+    "**/*.svelte",
+    "./node_modules/@windycom/plugin-devtools/types/leaflet.d.ts"
+  ]
 }

@@ -207,7 +207,7 @@
     let lightning: LightningResult | null = null;
     let scanning = false;
     let autoScan = true;
-    let autoTimer: any = null;
+    let autoTimer: ReturnType<typeof setInterval> | null = null;
     let storms: StormCell[] = [];
     let scanSource = '';
     let windData: WindData | null = null;
@@ -223,11 +223,11 @@
     let lastCenter: { lat: number; lng: number } | null = null;
     let centerNote = '';
 
-    let pointMarkers: any[] = [];
-    let arrowLines: any[] = [];
-    let trackPolys: any[] = [];
+    let pointMarkers: L.Layer[] = [];
+    let arrowLines: L.Polyline[] = [];
+    let trackPolys: L.Polygon[] = [];
     let ltgMarkers: any[] = [];
-    let rangeCircle: any = null;
+    let rangeCircle: L.Circle | null = null;
 
     $: visibleStorms = getVisibleStorms(storms, displayMode);
 
@@ -501,9 +501,13 @@
             updateChip();
             setTimeout(() => replot(), 0);
         } catch (e) {
+            // v2.0.2: log the cause. A silent 'Scan failed' left no way to tell
+            // a radar outage from a decode bug when it happened on a phone.
+            console.warn('[StormTracker] scan failed', e);
             scanSource = 'Scan failed';
+        } finally {
+            scanning = false;
         }
-        scanning = false;
     }
 
     function startAuto() {

@@ -236,7 +236,7 @@ async function scanTile(
   tx: number,
   ty: number,
   zoom: number,
-  colorFn: Function,
+  colorFn: (r: number, g: number, b: number, a: number) => number,
   minDbz: number,
   centerLat: number,
   centerLon: number,
@@ -247,7 +247,12 @@ async function scanTile(
   if (isRV) {
     try {
       const res = await fetch(url);
-      if (!res.ok) return [];
+      if (!res.ok) {
+        console.warn(
+          `[StormTracker] RainViewer tile ${res.status} z${zoom} ${tx}/${ty}`,
+        );
+        return [];
+      }
       const buf = await res.arrayBuffer();
       const { w, h, data } = await decodeRvRgba(buf);
       const pts: RawPoint[] = [];
@@ -272,7 +277,11 @@ async function scanTile(
         return [];
       }
       return pts;
-    } catch {
+    } catch (e) {
+      console.warn(
+        `[StormTracker] RainViewer tile unreadable z${zoom} ${tx}/${ty}`,
+        e,
+      );
       return [];
     }
   }
@@ -441,7 +450,7 @@ function buildCellTracks(prev: ScanSnapshot, curr: ScanSnapshot) {
   if (dtHrs <= 0 || dtHrs > 1) return;
   const tracks: Record<string, CellTrack> = {};
   for (const c of curr.cells) {
-    let best = null,
+    let best: ScanSnapshot["cells"][number] | null = null,
       bestD = Infinity;
     for (const p of prev.cells) {
       const d = haversine(c.lat, c.lng, p.lat, p.lng);
@@ -643,12 +652,21 @@ export async function scanForStorms(
   let rvPath = "";
   let source = "RainViewer";
   try {
-    const rv = await fetch(
+    const res = await fetch(
       "https://api.rainviewer.com/public/weather-maps.json",
-    ).then((r) => r.json());
-    const frames = (rv.radar?.past || []).concat(rv.radar?.nowcast || []);
-    if (frames.length) rvPath = frames[frames.length - 1].path;
-  } catch {}
+    );
+    if (!res.ok) {
+      console.warn(
+        `[StormTracker] RainViewer frame index failed: ${res.status}`,
+      );
+    } else {
+      const rv = await res.json();
+      const frames = (rv.radar?.past || []).concat(rv.radar?.nowcast || []);
+      if (frames.length) rvPath = frames[frames.length - 1].path;
+    }
+  } catch (e) {
+    console.warn("[StormTracker] RainViewer frame index unavailable", e);
+  }
 
   const tiles = buildScanTiles(centerLat, centerLon, zoom);
 
