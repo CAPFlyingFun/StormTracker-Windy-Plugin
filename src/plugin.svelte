@@ -198,7 +198,11 @@
 
     const { title } = config;
 
-    let displayMode: 'off' | 'inbound' | 'all' = 'inbound';
+    // v2.0.3: one named union instead of the literal repeated at every
+    // signature, so a new mode can't be added in one place and missed in
+    // the others.
+    type DisplayMode = 'off' | 'inbound' | 'all';
+    let displayMode: DisplayMode = 'inbound';
     let scanRadius = 80;
     let showPoints = true;
     let showArrows = true;
@@ -218,7 +222,7 @@
     // sitting hundreds of miles away. 'gps' = device location (falls back to
     // map center if denied/unavailable); 'map' = old behavior. Persisted.
     let centerMode: 'gps' | 'map' =
-        ((): 'gps' | 'map' => { try { return (localStorage.getItem('st-wp-centerMode') as any) === 'map' ? 'map' : 'gps'; } catch { return 'gps'; } })();
+        ((): 'gps' | 'map' => { try { return localStorage.getItem('st-wp-centerMode') === 'map' ? 'map' : 'gps'; } catch { return 'gps'; } })();
     let gpsFix: { lat: number; lng: number; ts: number } | null = null;
     let lastCenter: { lat: number; lng: number } | null = null;
     let centerNote = '';
@@ -231,7 +235,7 @@
 
     $: visibleStorms = getVisibleStorms(storms, displayMode);
 
-    function getVisibleStorms(stormList: StormCell[], mode: string): StormCell[] {
+    function getVisibleStorms(stormList: StormCell[], mode: DisplayMode): StormCell[] {
         if (mode === 'off') return [];
         if (mode === 'inbound') {
             return stormList.filter(s => s.eta && s.eta.approaching).slice(0, 12);
@@ -244,7 +248,7 @@
         updateRangeCircle();
     }
 
-    function setMode(m: 'off' | 'inbound' | 'all') {
+    function setMode(m: DisplayMode) {
         displayMode = m;
         replot();
     }
@@ -492,7 +496,12 @@
             // layer just stays empty.
             const [result, ltg] = await Promise.all([
                 scanForStorms(vc.lat, vc.lng, scanRadius),
-                showLightning ? fetchLightning(vc.lat, vc.lng, scanRadius).catch(() => null) : Promise.resolve(null),
+                showLightning
+                    ? fetchLightning(vc.lat, vc.lng, scanRadius).catch(e => {
+                          console.warn('[StormTracker] lightning unavailable', e);
+                          return null;
+                      })
+                    : Promise.resolve(null),
             ]);
             storms = result.storms;
             scanSource = result.source;

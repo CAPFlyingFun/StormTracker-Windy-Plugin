@@ -297,6 +297,12 @@ async function scanTile(
   c.width = 256;
   c.height = 256;
   const ctx = c.getContext("2d", { willReadFrequently: true });
+  if (!ctx) {
+    // Mobile Safari drops 2d contexts once too many canvases are live. The
+    // next drawImage would have thrown and taken the whole scan with it.
+    console.warn("[StormTracker] no 2d canvas context — tile skipped");
+    return [];
+  }
   ctx.drawImage(img, 0, 0);
   let data: Uint8ClampedArray;
   try {
@@ -524,7 +530,12 @@ export async function fetchWindsAloft(
         if (i === hosts.length - 1) break; // network/timeout — try next host
       }
     }
-    if (!r) return null;
+    if (!r) {
+      console.warn(
+        "[StormTracker] winds aloft unavailable on both Open-Meteo hosts",
+      );
+      return null;
+    }
     const d = await r.json();
     const c = d.current;
     const steering = [
